@@ -19830,3 +19830,141 @@ def test_workspace_move_rehomes_running_session(monkeypatch, tmp_path):
     assert captured["row_update"] == (target, str(new_cwd))
     assert live["cwd"] == str(new_cwd)
     assert live.get("explicit_cwd") is True
+
+
+def test_set_session_context_binds_session_profile_into_session_vars():
+    from gateway.session_context import get_session_env
+
+    sid = "sid-test-crew"
+    key = "key-test-crew"
+    session = {"session_key": key, "profile": "matias", "source": "hermes-crew"}
+    server._sessions[sid] = session
+    try:
+        tokens = server._set_session_context(key)
+        try:
+            assert get_session_env("HERMES_SESSION_PROFILE") == "matias"
+            assert get_session_env("HERMES_SESSION_SOURCE") == "hermes-crew"
+        finally:
+            server._clear_session_context(tokens)
+    finally:
+        server._sessions.pop(sid, None)
+
+
+def test_set_session_context_resolves_profile_home_when_profile_unset():
+    from gateway.session_context import get_session_env
+
+    sid = "sid-test-home"
+    key = "key-test-home"
+    session = {"session_key": key, "profile_home": "/tmp/profiles/matias"}
+    server._sessions[sid] = session
+    try:
+        tokens = server._set_session_context(key)
+        try:
+            assert get_session_env("HERMES_SESSION_PROFILE") == "matias"
+        finally:
+            server._clear_session_context(tokens)
+    finally:
+        server._sessions.pop(sid, None)
+
+
+def test_set_session_context_falls_back_to_current_profile_name(monkeypatch):
+    from gateway.session_context import get_session_env
+
+    sid = "sid-test-fallback"
+    key = "key-test-fallback"
+    session = {"session_key": key}
+    server._sessions[sid] = session
+    monkeypatch.setattr(server, "_current_profile_name", lambda: "active-agent")
+    try:
+        tokens = server._set_session_context(key)
+        try:
+            assert get_session_env("HERMES_SESSION_PROFILE") == "active-agent"
+        finally:
+            server._clear_session_context(tokens)
+    finally:
+        server._sessions.pop(sid, None)
+
+
+def test_session_create_preserves_profile_and_binds_session_context(monkeypatch, tmp_path):
+    from gateway.session_context import get_session_env
+
+    monkeypatch.setattr(server, "_profile_home", lambda p: None)
+    monkeypatch.setattr(server, "_register_session_cwd", lambda s: None)
+    monkeypatch.setattr(server, "_schedule_agent_build", lambda sid: None)
+    monkeypatch.setattr(server, "_schedule_session_cap_enforcement", lambda: None)
+
+    res = _dispatch_sync({
+        "method": "session.create",
+        "id": "req-create-crew",
+        "params": {
+            "source": "hermes-crew",
+            "profile": "matias",
+            "cwd": str(tmp_path),
+        },
+    })
+    assert res and "result" in res, res
+    sid = res["result"]["session_id"]
+    try:
+        sess = server._sessions[sid]
+        assert sess.get("profile") == "matias"
+        assert sess.get("source") == "hermes-crew"
+
+        tokens = server._set_session_context(sess["session_key"])
+        try:
+            assert get_session_env("HERMES_SESSION_PROFILE") == "matias"
+            assert get_session_env("HERMES_SESSION_SOURCE") == "hermes-crew"
+        finally:
+            server._clear_session_context(tokens)
+    finally:
+        server._sessions.pop(sid, None)
+
+
+def test_session_resume_preserves_profile_and_binds_session_context(monkeypatch, tmp_path):
+    from gateway.session_context import get_session_env
+
+    target = "key-resume-profile-test"
+
+    class FakeDB:
+        def get_session(self, session_id):
+            return {"id": session_id, "message_count": 0}
+
+        def get_messages_as_conversation(self, session_id, **kwargs):
+            return []
+
+        def reopen_session(self, target):
+            return True
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(server, "_profile_home", lambda p: None)
+    monkeypatch.setattr(server, "_get_db", lambda: FakeDB())
+    monkeypatch.setattr(server, "_register_session_cwd", lambda s: None)
+    monkeypatch.setattr(server, "_schedule_agent_build", lambda sid: None)
+
+    res = _dispatch_sync({
+        "method": "session.resume",
+        "id": "req-resume-crew",
+        "params": {
+            "session_id": target,
+            "source": "hermes-crew",
+            "profile": "matias",
+            "cols": 80,
+            "lazy": True,
+        },
+    })
+    assert res and "result" in res, res
+    sid = res["result"]["session_id"]
+    try:
+        sess = server._sessions[sid]
+        assert sess.get("profile") == "matias"
+        assert sess.get("source") == "hermes-crew"
+
+        tokens = server._set_session_context(sess["session_key"])
+        try:
+            assert get_session_env("HERMES_SESSION_PROFILE") == "matias"
+            assert get_session_env("HERMES_SESSION_SOURCE") == "hermes-crew"
+        finally:
+            server._clear_session_context(tokens)
+    finally:
+        server._sessions.pop(sid, None)

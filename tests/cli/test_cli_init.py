@@ -10,7 +10,7 @@ import pytest
 
 
 
-def _make_cli(env_overrides=None, config_overrides=None, **kwargs):
+def _make_cli(env_overrides=None, config_overrides=None, console_print_sink=None, **kwargs):
     """Create a HermesCLI instance with minimal mocking."""
     import importlib
 
@@ -53,6 +53,9 @@ def _make_cli(env_overrides=None, config_overrides=None, **kwargs):
             _cli_mod = importlib.reload(_cli_mod)
             with patch.object(_cli_mod, "get_tool_definitions", return_value=[]), \
                  patch.dict(_cli_mod.__dict__, {"CLI_CONFIG": _clean_config}):
+                if console_print_sink is not None:
+                    with patch.object(_cli_mod.HermesCLI, "_console_print", lambda self, *a, **k: console_print_sink.append(a[0] if a else "")):
+                        return _cli_mod.HermesCLI(**kwargs)
                 return _cli_mod.HermesCLI(**kwargs)
     finally:
         # The reload above re-executed cli.py while prompt_toolkit was stubbed
@@ -673,3 +676,40 @@ class TestRootLevelProviderOverride:
 
 
 
+
+
+class TestCLIToolsetValidation:
+    def test_cli_init_accepts_plugin_toolset_after_discovery(self, monkeypatch):
+        import toolsets
+        discovered = False
+
+        def fake_validate(name):
+            if name == "crew":
+                return discovered
+            return toolsets.TOOLSETS.get(name) is not None
+
+        def fake_discover():
+            nonlocal discovered
+            discovered = True
+
+        monkeypatch.setattr(toolsets, "validate_toolset", fake_validate)
+        monkeypatch.setattr("hermes_cli.plugins.discover_plugins", fake_discover)
+
+        printed = []
+        cli = _make_cli(toolsets=["crew"], console_print_sink=printed)
+        assert cli.enabled_toolsets == ["crew"]
+        assert not any("Unknown toolsets" in str(msg) for msg in printed)
+        assert discovered is True
+
+    def test_cli_init_warns_truly_unknown_toolset(self, monkeypatch):
+        import toolsets
+
+        def fake_validate(name):
+            return False
+
+        monkeypatch.setattr(toolsets, "validate_toolset", fake_validate)
+        monkeypatch.setattr("hermes_cli.plugins.discover_plugins", lambda: None)
+
+        printed = []
+        cli = _make_cli(toolsets=["nonexistent_xyz"], console_print_sink=printed)
+        assert any("Warning: Unknown toolsets: nonexistent_xyz" in str(msg) for msg in printed)

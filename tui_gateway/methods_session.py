@@ -100,6 +100,7 @@ def _(rid, params: dict) -> dict:
             "pending_title": title or None,
             "pending_hidden": is_truthy_value(params.get("hidden", False)),
             "profile_home": str(profile_home) if profile_home is not None else None,
+            "profile": profile,
             "running": False,
             "session_key": key,
             "show_reasoning": _load_show_reasoning(),
@@ -487,6 +488,7 @@ def _(rid, params: dict) -> dict:
                 source=source,
                 close_on_disconnect=is_truthy_value(params.get("close_on_disconnect", False)),
                 profile_home=profile_home,
+                profile=profile,
                 lazy=True,
             )
             if (live := _claim_or_reuse_live(sid, target, record, lease)) is not None:
@@ -554,6 +556,7 @@ def _(rid, params: dict) -> dict:
                 source=source,
                 close_on_disconnect=is_truthy_value(params.get("close_on_disconnect", False)),
                 profile_home=profile_home,
+                profile=profile,
                 model_override=overrides.get("model_override"),
                 resume_runtime_overrides=overrides or None,
             )
@@ -650,6 +653,7 @@ def _(rid, params: dict) -> dict:
                 close_on_disconnect=is_truthy_value(params.get("close_on_disconnect", False)),
                 display_history_prefix=prefix,
                 profile_home=profile_home,
+                profile=profile,
                 model_override=overrides.get("model_override"),
                 resume_runtime_overrides=overrides or None,
             )

@@ -3428,14 +3428,26 @@ def _set_session_context(
         # fall back to the session_key (matching the id derivation used at
         # session-finalize), so an identified session is never left blank.
         session_id = session_key
+        profile = ""
         with _sessions_lock:
-            for sess in list(_sessions.values()):
-                if sess.get("session_key") == session_key:
+            for s_id, sess in list(_sessions.items()):
+                if sess.get("session_key") == session_key or s_id == session_key:
                     source = _session_source(sess)
                     session_id = (
-                        getattr(sess.get("agent"), "session_id", None) or session_key
+                        getattr(sess.get("agent"), "session_id", None) or sess.get("session_key") or session_key
                     )
+                    profile = sess.get("profile") or ""
+                    if not profile and sess.get("profile_home"):
+                        try:
+                            profile = Path(sess["profile_home"]).name
+                        except Exception:
+                            profile = ""
                     break
+        if not profile:
+            try:
+                profile = _current_profile_name()
+            except Exception:
+                profile = ""
         return set_session_vars(
             session_key=session_key,
             session_id=session_id,
@@ -3443,6 +3455,7 @@ def _set_session_context(
             cwd=resolved,
             ui_session_id=ui_session_id,
             cron_session="",
+            profile=profile,
         )
     except Exception:
         return []
@@ -7031,6 +7044,7 @@ def _init_session(
     session_db=None,
     source: str | None = None,
     profile_home: str | None = None,
+    profile: str | None = None,
 ):
     now = time.time()
     with _sessions_lock:
@@ -7058,6 +7072,7 @@ def _init_session(
             # launch profile. SessionBranch copies the parent's value so the
             # child stays on the same state.db.
             "profile_home": profile_home,
+            "profile": profile,
             # Per-session model override set by an in-session /model switch.
             # Honored on rebuild (/new, resume) so a switch in THIS session
             # never leaks into siblings via process-global env vars.
@@ -8389,6 +8404,7 @@ def _deferred_session_record(
     close_on_disconnect: bool = False,
     display_history_prefix: list | None = None,
     profile_home: Path | None = None,
+    profile: str | None = None,
     lazy: bool = False,
     model_override=None,
     resume_runtime_overrides: dict | None = None,
@@ -8419,6 +8435,7 @@ def _deferred_session_record(
         "model_override": model_override,
         "pending_title": None,
         "profile_home": str(profile_home) if profile_home is not None else None,
+        "profile": profile,
         "resume_runtime_overrides": resume_runtime_overrides,
         "resume_session_id": session_key,
         "running": False,
